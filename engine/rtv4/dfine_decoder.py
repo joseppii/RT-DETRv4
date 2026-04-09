@@ -730,11 +730,12 @@ class DFINETransformer(nn.Module):
         # the [0,1]-normalised prior accordingly.
         PRIOR_SLOT = self.num_queries - 1  # slot 299
         if spatial_prior is not None and use_spatial_prior is not None:
-            if use_spatial_prior.item():
-                prior_clamped = spatial_prior.clamp(1e-6, 1.0 - 1e-6)
-                prior_unact = torch.log(prior_clamped / (1.0 - prior_clamped))
-                init_ref_points_unact = init_ref_points_unact.clone()
-                init_ref_points_unact[:, PRIOR_SLOT, :] = prior_unact
+            prior_clamped = spatial_prior.clamp(1e-6, 1.0 - 1e-6)
+            prior_unact = torch.log(prior_clamped / (1.0 - prior_clamped))
+            init_ref_points_unact = init_ref_points_unact.clone()
+            mask = use_spatial_prior.to(dtype=init_ref_points_unact.dtype).unsqueeze(-1)  # [1, 1]
+            original = init_ref_points_unact[:, PRIOR_SLOT, :]
+            init_ref_points_unact[:, PRIOR_SLOT, :] = original * (1.0 - mask) + prior_unact * mask
 
         # decoder
         out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = self.decoder(
