@@ -752,9 +752,9 @@ class DFINETransformer(nn.Module):
             # content_prior: [1, hidden_dim]  (already L2-normalized by adapter)
             projected = self.content_projection(content_prior)            # [1, hidden_dim]
             init_ref_contents = init_ref_contents.clone()
-            mask = use_content_prior.to(dtype=init_ref_contents.dtype).unsqueeze(-1)  # [1, 1]
+            content_mask = use_content_prior.to(dtype=init_ref_contents.dtype).unsqueeze(-1)  # [1, 1]
             original_content = init_ref_contents[:, PRIOR_SLOT, :]
-            init_ref_contents[:, PRIOR_SLOT, :] = original_content * (1.0 - mask) + projected * mask
+            init_ref_contents[:, PRIOR_SLOT, :] = original_content * (1.0 - content_mask) + projected * content_mask
 
         # decoder
         out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = self.decoder(
