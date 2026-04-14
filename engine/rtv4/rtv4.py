@@ -25,7 +25,8 @@ class RTv4(nn.Module):
         self.encoder = encoder
 
     def forward(self, x, targets=None, teacher_encoder_output=None,
-                spatial_prior=None, use_spatial_prior=None):
+                spatial_prior=None, use_spatial_prior=None,
+                content_prior=None, use_content_prior=None):
         x_backbone = self.backbone(x)  # [S3, S4, S5] features from backbone
 
         encoder_output = self.encoder(x_backbone)
@@ -39,7 +40,9 @@ class RTv4(nn.Module):
 
         x_decoder_out = self.decoder(x_fpn_features, targets,
                                      spatial_prior=spatial_prior,
-                                     use_spatial_prior=use_spatial_prior)
+                                     use_spatial_prior=use_spatial_prior,
+                                     content_prior=content_prior,
+                                     use_content_prior=use_content_prior)
 
         if self.training and student_distill_output is not None and teacher_encoder_output is not None:
             x_decoder_out['student_distill_output'] = student_distill_output
