@@ -507,6 +507,11 @@ class DFINETransformer(nn.Module):
           + [MLP(scaled_dim, scaled_dim, 4 * (self.reg_max+1), 3, act=mlp_act) for _ in range(num_layers - self.eval_idx - 1)])
         self.integral = Integral(self.reg_max)
 
+        # Content prior projection layer — initialized as identity so that
+        # use_content_prior=False is bitwise identical to the pre-modification model.
+        self.content_projection = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
+        nn.init.eye_(self.content_projection.weight)
+
         # init encoder output anchors and valid_mask
         if self.eval_spatial_size:
             anchors, valid_mask = self._generate_anchors()
@@ -702,7 +707,9 @@ class DFINETransformer(nn.Module):
 
         return topk_memory, topk_logits, topk_anchors
 
-    def forward(self, feats, targets=None, spatial_prior=None, use_spatial_prior=None):
+    def forward(self, feats, targets=None,
+                spatial_prior=None, use_spatial_prior=None,
+                content_prior=None, use_content_prior=None):
         # input projection and embedding
         memory, spatial_shapes = self._get_encoder_input(feats)
 
@@ -737,6 +744,18 @@ class DFINETransformer(nn.Module):
             original = init_ref_points_unact[:, PRIOR_SLOT, :]
             init_ref_points_unact[:, PRIOR_SLOT, :] = original * (1.0 - mask) + prior_unact * mask
 
+        # --- CONTENT PRIOR INJECTION ---
+        # Override the content query at slot 299 with the projected content prior.
+        # Uses the same trace-safe mask pattern as the spatial prior above so that
+        # ONNX export produces a single graph with no dynamic conditionals.
+        if content_prior is not None and use_content_prior is not None:
+            # content_prior: [1, hidden_dim]  (already L2-normalized by adapter)
+            projected = self.content_projection(content_prior)            # [1, hidden_dim]
+            init_ref_contents = init_ref_contents.clone()
+            mask = use_content_prior.to(dtype=init_ref_contents.dtype).unsqueeze(-1)  # [1, 1]
+            original_content = init_ref_contents[:, PRIOR_SLOT, :]
+            init_ref_contents[:, PRIOR_SLOT, :] = original_content * (1.0 - mask) + projected * mask
+
         # decoder
         out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = self.decoder(
             init_ref_contents,
@@ -767,9 +786,11 @@ class DFINETransformer(nn.Module):
 
         if self.training:
             out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1], 'pred_corners': out_corners[-1],
-                   'ref_points': out_refs[-1], 'up': self.up, 'reg_scale': self.reg_scale}
+                   'ref_points': out_refs[-1], 'up': self.up, 'reg_scale': self.reg_scale,
+                   'encoder_features': memory}
         else:
-            out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
+            out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1],
+                   'encoder_features': memory}
 
         if self.training and self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss2(out_logits[:-1], out_bboxes[:-1], out_corners[:-1], out_refs[:-1],
